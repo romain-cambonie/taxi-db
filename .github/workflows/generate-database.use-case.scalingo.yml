@@ -1,0 +1,72 @@
+name: Dispatch - Génère BDD à partir du dump sur scalingo
+
+on:
+  # Every night around 1AM
+#  schedule:
+#    - cron: "58 0 * * *"
+
+  workflow_dispatch:
+    inputs:
+      application-name:
+        description: "The application which host the database on scalingo. Must be unique, cannot contain 'scalingo', 47 characters maximum"
+        required: true
+        type: string
+      addon-plan-postgresql:
+        required: true
+        description: "Database plan"
+        type: choice
+        options:
+          - "postgresql-sandbox"
+          - "postgresql-starter-512"
+          - "postgresql-starter-1024"
+          - "postgresql-starter-2048"
+          - "postgresql-starter-4096"
+          - "postgresql-starter-8192"
+          - "postgresql-business-512"
+          - "postgresql-business-1024"
+          - "postgresql-business-2048"
+          - "postgresql-business-4096"
+          - "postgresql-business-8192"
+
+env:
+  metabase-application-name: "taxi-db"
+  scalingo-domain: ".osc-fr1.scalingo.io"
+
+jobs:
+  # view-source : https://github.com/romain-cambonie/serenity-workflow-dev/blob/master/.github/workflows/replicate-remote-db-standalone.use-case.yml
+  generate-db:
+    # TODO Change target workflow to
+    # romain-cambonie/serenity-workflows/.github/workflows/replicate-db.use-case.yml@master
+    # when ready
+    uses: romain-cambonie/taxi-db/.github/workflows/postgre-database-from-orient-dump.postgresql.scalingo.yml@master
+    with:
+      application-name: ${{ inputs.application-name }}
+      addon-plan-postgresql: ${{ inputs.addon-plan-postgresql }}
+      orient-dump-filename: 'taxi.gz'
+    secrets:
+      SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
+
+
+  notify-discord:
+    needs:
+      - generate-db
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Do nothing'
+        run: echo 'PLOP'
+#      - name: Prepare payload
+#        run: >-
+#          (jq -r '.' <<< '
+#          {
+#            "username": "Taxibot",
+#            "content": "Génération de la base effectuée avec succès"
+#          }'
+#          ) > payload
+#
+#      - name: Send notification
+#        run: >-
+#          curl
+#          --header "Content-Type:application/json"
+#          --request POST
+#          --data @payload
+#          ${{ secrets.DISCORD_NOTIFY_HOOK_URL }}

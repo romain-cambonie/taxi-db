@@ -1,0 +1,150 @@
+name: Create a postgre database from an oriendb dump
+
+on:
+  workflow_call:
+    inputs:
+      application-name:
+        required: true
+        type: string
+      addon-plan-postgresql:
+        required: true
+        type: string
+      extensions:
+        required: false
+        type: string
+        default: ''
+      orient-dump-filename:
+        required: true
+        type: string
+    secrets:
+      SCALINGO_API_TOKEN:
+        required: true
+
+jobs:
+  create-application-on-scalingo:
+    uses: romain-cambonie/serenity-workflows/.github/workflows/_prepare-application-and-keys.scalingo.reusable.yml@master
+    with:
+      application-name: ${{ inputs.application-name }}
+    secrets:
+      SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
+
+  reset-database-addon:
+    needs:
+      - create-application-on-scalingo
+
+    uses: romain-cambonie/serenity-workflow-dev/.github/workflows/_setup-addon.postgresql.scalingo.reusable.yml@master
+    with:
+      application-name: ${{ inputs.application-name }}
+      addon-plan-postgresql: ${{ inputs.addon-plan-postgresql }}
+      reset: true
+    secrets:
+      SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
+
+  wait-addon-running:
+    needs:
+      - reset-database-addon
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for addon
+        run: sleep 30s
+
+#  install-postgresql-extensions:
+#    needs:
+#      - reset-database-addon
+#      - wait-addon-running
+#
+#    if: inputs.extensions
+#
+#    uses: romain-cambonie/serenity-workflow-dev/.github/workflows/_create-extension.postgresql.scalingo.reusable.yml@master
+#    with:
+#      extensions-as-comma-separated-string: ${{ inputs.extensions }}
+#      application-name: ${{ inputs.application-name }}
+#    secrets:
+#      SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
+
+  generate-db-dump:
+    needs:
+      -  wait-addon-running
+    #if: needs.install-postgresql-extensions.result == 'success' || needs.install-postgresql-extensions.result == 'skipped'
+    runs-on: ubuntu-latest
+
+    outputs:
+      drivers: ${{ steps.drivers_step.outputs.drivers }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Verify the current folder state
+        run: ls -la
+      - name: Extract the archive to raw json
+        run: gzip -d taxi.gz
+      - name: Verify the current folder state
+        run: ls -la
+      - name: Verify that the json contains expected keys, especially 'records'.
+        run: jq 'keys' taxi
+      - name: Verify that the json contains expected keys, especially 'records'.
+        run: jq '.records' taxi > records
+      - name: Verify the current folder state
+        run: ls -la
+      - name: Count the number of records
+        run: jq '. | length' records
+      - name: Take only the record with the @class propertie
+        run: jq 'map(select(has("@class")))' records > class
+      - name: Get records with the "Driver" class
+        run: jq 'map(select(."@class" | contains("Driver")))' class > drivers
+      - name: Put drivers into output
+        id: drivers_step
+        run: |
+          DRIVERS=$(cat ./drivers)
+          echo $DRIVERS
+          DRIVERS="${DRIVERS//'%'/'%25'}"
+          DRIVERS="${DRIVERS//$'\n'/'%0A'}"
+          DRIVERS="${DRIVERS//$'\r'/'%0D'}"
+          echo $DRIVERS
+          echo "drivers=$(echo $DRIVERS)" >> $GITHUB_OUTPUT
+
+  create-drivers-table:
+    name: Create drivers from json
+    needs:
+      - generate-db-dump
+    runs-on: ubuntu-latest
+    container:
+      image: rcambonie/scalingo-cli
+
+    env:
+      DATABASE_VAR: "$DATABASE_URL"
+
+    steps:
+      - name: Display drivers
+        run: echo ${{ needs.generate-db-dump.outputs.drivers }} > drivers
+
+      - name: Verify the current folder state
+        run: ls -la
+
+      - name: Login with api-token
+        run: scalingo login --api-token=${{ secrets.SCALINGO_API_TOKEN }}
+
+      - name: Create drivers table
+        run: |
+          echo "CREATE TABLE IF NOT EXISTS drivers (user_id serial PRIMARY KEY, email VARCHAR ( 255 ) UNIQUE NOT NULL, username VARCHAR ( 50 ) UNIQUE NOT NULL); INSERT INTO drivers (email, username) VALUES ('test@test.com', 'Yojimbo'); \q" | scalingo --app ${{ inputs.application-name }} pgsql-console
+
+      #- name: Feed drivers table with json
+      #  run: |
+      #    echo "\set content `$DATA`; create temp table t ( j jsonb );  insert into t values (:'content');  select * from t; \q" | scalingo --app ${{ inputs.application-name }} pgsql-console
+
+#      - name: Start container with json file in
+#        run: scalingo --app ${{ inputs.application-name }} run --file ./drivers.json
+#
+      - name: Try to insert the json in the drivers table
+        run: >-
+          scalingo --app ${{ inputs.application-name }} run bash -c "echo 'Installing pgsql-client' &&
+          dbclient-fetcher pgsql &&
+          echo 'Trying to interact with db' &&
+          ls -la /tmp &&
+          psql $DATABASE_VAR -c '\x' -c 'SELECT * FROM drivers;'
+          exit 0" --file ./drivers
+  
+
+
+
