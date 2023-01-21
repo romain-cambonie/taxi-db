@@ -31,6 +31,12 @@ on:
         required: true
       SSH_PRIVATE_KEY:
         required: true
+      HOST:
+        required: true
+      PORT:
+        required: true
+      FINGERPRINT:
+        required: true
 
 
 jobs:
@@ -87,17 +93,43 @@ jobs:
       DATABASE_VAR: "$DATABASE_URL"
 
     steps:
-      - name: Set up ssh private key for remote machine
-        run: |
-          install -m 600 -D /dev/null ~/.ssh/id_rsa
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          echo ${{ secrets.SSH_ZORA_PASSWORD }} | ssh-agent ssh-add ~/.ssh/id_rsa
-          echo ${{ secrets.SSH_ZORA_PASSWORD }} | ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.SSH_ZORA_LOGIN }} 'cd /opt && sudo /opt/orientdb-community-2.2.30/bin/console.sh "connect plocal:orientdb-community-2.2.30/databases/${{ secrets.ORIENTDB_DBNAME }} ${{ secrets.ORIENTDB_DBLOGIN }} ${{ secrets.ORIENTDB_DBPASSWORD }};EXPORT DATABASE /home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }};exit" && cd /home/${{ secrets.ZORA_USER }} && ls -la && exit'
+      - name: Generate dump on legacy server
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.ZORA_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
+          port: ${{ secrets.PORT }}
+          script: |
+            cd /opt
+            sudo /opt/orientdb-community-2.2.30/bin/console.sh "connect plocal:orientdb-community-2.2.30/databases/${{ secrets.ORIENTDB_DBNAME }} ${{ secrets.ORIENTDB_DBLOGIN }} ${{ secrets.ORIENTDB_DBPASSWORD }};EXPORT DATABASE /home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }};exit"
+            cd /home/${{ secrets.ZORA_USER }}
+            sudo chown ${{ secrets.ZORA_USER }}:${{ secrets.ZORA_USER }} ${{ secrets.DUMP_FILENAME }}
+            ls -la 
+            exit
 
-      - name: Copy file using SCP
+      - name: Copy dump to runner
+        uses: nicklasfrahm/scp-action@main
+        with:
+          direction: download
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.ZORA_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          port: ${{ secrets.PORT }}
+          source: "/home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }}"
+          target: "${{ secrets.DUMP_FILENAME }}"
+
+      - name: Check file
         run: |
-          scp -o StrictHostKeyChecking=no -i ${{ secrets.SSH_PRIVATE_KEY }} ${{ secrets.SSH_ZORA_LOGIN }}:/home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }}  .
           ls -la
+
+#      - name: Copy file using SCP
+#        run: |
+#          scp -o StrictHostKeyChecking=no -i ${{ secrets.SSH_PRIVATE_KEY }} ${{ secrets.SSH_ZORA_LOGIN }}:/home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }}  .
+#          ls -la
 
 #      - name: Login with api-token
 #        run: scalingo login --api-token=${{ secrets.SCALINGO_API_TOKEN }}

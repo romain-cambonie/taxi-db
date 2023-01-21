@@ -52,6 +52,9 @@ jobs:
       SSH_ZORA_PASSWORD: ${{ secrets.SSH_ZORA_PASSWORD }}
       ZORA_USER: ${{ secrets.ZORA_USER }}
       SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      HOST: ${{ secrets.HOST }}
+      PORT: ${{ secrets.PORT }}
+      FINGERPRINT: ${{ secrets.FINGERPRINT }}
 
 
   notify-discord:
