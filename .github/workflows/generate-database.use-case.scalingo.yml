@@ -42,9 +42,16 @@ jobs:
     with:
       application-name: ${{ inputs.application-name }}
       addon-plan-postgresql: ${{ inputs.addon-plan-postgresql }}
-      orient-dump-filename: 'taxi.gz'
     secrets:
       SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
+      DUMP_FILENAME: ${{ secrets.DUMP_FILENAME }}
+      ORIENTDB_DBLOGIN: ${{ secrets.ORIENTDB_DBLOGIN }}
+      ORIENTDB_DBNAME: ${{ secrets.ORIENTDB_DBNAME }}
+      ORIENTDB_DBPASSWORD: ${{ secrets.ORIENTDB_DBPASSWORD }}
+      SSH_ZORA_LOGIN: ${{ secrets.SSH_ZORA_LOGIN }}
+      SSH_ZORA_PASSWORD: ${{ secrets.SSH_ZORA_PASSWORD }}
+      ZORA_USER: ${{ secrets.ZORA_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
 
 
   notify-discord:
