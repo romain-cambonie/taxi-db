@@ -29,7 +29,6 @@ on:
           - "postgresql-business-8192"
 
 env:
-  metabase-application-name: "taxi-db"
   scalingo-domain: ".osc-fr1.scalingo.io"
 
 jobs:

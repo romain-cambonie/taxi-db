@@ -13,6 +13,15 @@ on:
         required: false
         type: string
         default: ''
+      scalingo-remote-domain-url:
+        required: false
+        type: string
+        default: "git@ssh.osc-fr1.scalingo.com"
+      scalingo-ssh-host-domain:
+        required: false
+        type: string
+        default: "ssh.osc-fr1.scalingo.com"
+
     secrets:
       SCALINGO_API_TOKEN:
         required: true
@@ -38,35 +47,84 @@ on:
       FINGERPRINT:
         required: true
 
+env:
+  scalingo-release-url: 'https://github.com/scalingo/cli/releases/download/1.27.1/scalingo_1.27.1_linux_386.tar.gz'
+  archive-name: 'scalingo_1.27.1_linux_386'
+  archive-extention: '.tar.gz'
+  executable-name: 'scalingo'
+  unarchived-dump-name: 'taxi'
 
 jobs:
-#  create-application-on-scalingo:
-#    uses: romain-cambonie/serenity-workflows/.github/workflows/_prepare-application-and-keys.scalingo.reusable.yml@master
-#    with:
-#      application-name: ${{ inputs.application-name }}
-#    secrets:
-#      SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
-#
-#  reset-database-addon:
-#    needs:
-#      - create-application-on-scalingo
-#
-#    uses: romain-cambonie/serenity-workflow-dev/.github/workflows/_setup-addon.postgresql.scalingo.reusable.yml@master
-#    with:
-#      application-name: ${{ inputs.application-name }}
-#      addon-plan-postgresql: ${{ inputs.addon-plan-postgresql }}
-#      reset: true
-#    secrets:
-#      SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
-#
-#  wait-addon-running:
-#    needs:
-#      - reset-database-addon
-#
-#    runs-on: ubuntu-latest
-#    steps:
-#      - name: Wait for addon
-#        run: sleep 30s
+  prepare-application:
+    runs-on: ubuntu-latest
+#    container:
+#      image: rcambonie/scalingo-cli
+    steps:
+      - name: Get file from repo
+        uses: actions/checkout@v3
+
+      - name: Install scalingo cli on runner
+        run: |
+          wget ${{ env.scalingo-release-url }}
+          tar -zxvf ${{ env.archive-name }}${{ env.archive-extention }}
+          mv ./${{ env.archive-name }}/${{ env.executable-name }} ./${{ env.executable-name }}
+          chmod +x ./${{ env.executable-name }}
+          ls -la
+
+      - name: Login with api-token
+        run: ./scalingo login --api-token=${{ secrets.SCALINGO_API_TOKEN }}
+
+      - name: Create application if needed
+        run: |
+          set +e
+          APP_ALREADY_EXIST=$(./scalingo apps | grep -c ${{ inputs.application-name }} )
+          set -e
+          if [[ $APP_ALREADY_EXIST -eq 0 ]]; then ./scalingo create ${{ inputs.application-name }}; else echo 'App exists already or has an invalid name'; fi
+
+      - name: Release - Initialise a local git repository for deployment (a scalingo deployment is a push to their remote)
+        run: |
+          rm -rf .git
+          ssh-keygen -q -t rsa -N '' -f id_rsa
+          ./scalingo keys-add ${{ inputs.application-name }} id_rsa.pub
+          git config --global init.defaultBranch master
+          git config --global user.email dummy@email.fr
+          git config --global user.name ScalingoDeployer
+          git config --global push.autoSetupRemote true
+          gzip -d ${{ secrets.DUMP_FILENAME }}
+          jq '.records' ${{ env.unarchived-dump-name }} > records
+          jq 'map(select(has("@class")))' records > class
+          jq 'map(select(."@class" | contains("Driver")))' class > drivers
+          git init .
+          git add migrations package.json migration-template.ts drivers
+          git remote add scalingo ${{ inputs.scalingo-remote-domain-url }}:${{ inputs.application-name }}.git
+          git commit -m "Release bundle"
+          ssh-keyscan -H ${{ inputs.scalingo-ssh-host-domain }} >> known_hosts
+          GIT_SSH_COMMAND="ssh -i id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=known_hosts" git push scalingo -f
+
+      - name: Remove the transient ssh-key from logged profile
+        run: ./scalingo keys-remove ${{ inputs.application-name }}
+        continue-on-error: true
+
+  reset-database-addon:
+    needs:
+      - prepare-application
+
+    uses: romain-cambonie/serenity-workflow-dev/.github/workflows/_setup-addon.postgresql.scalingo.reusable.yml@master
+    with:
+      application-name: ${{ inputs.application-name }}
+      addon-plan-postgresql: ${{ inputs.addon-plan-postgresql }}
+      reset: true
+    secrets:
+      SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
+
+  wait-addon-running:
+    needs:
+      - reset-database-addon
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for addon
+        run: sleep 30s
 
 #  install-postgresql-extensions:
 #    needs:
@@ -83,85 +141,78 @@ jobs:
 #      SCALINGO_API_TOKEN: ${{ secrets.SCALINGO_API_TOKEN }}
 
 
-  create-drivers-table:
+  migrate:
     name: Create drivers from json
+    needs: wait-addon-running
     runs-on: ubuntu-latest
-#    container:
-#      image: rcambonie/scalingo-cli
-
-    env:
-      DATABASE_VAR: "$DATABASE_URL"
+    container:
+      image: rcambonie/scalingo-cli
 
     steps:
-      - name: Generate dump on legacy server
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.ZORA_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
-          port: ${{ secrets.PORT }}
-          script: |
-            cd /opt
-            sudo /opt/orientdb-community-2.2.30/bin/console.sh "connect plocal:orientdb-community-2.2.30/databases/${{ secrets.ORIENTDB_DBNAME }} ${{ secrets.ORIENTDB_DBLOGIN }} ${{ secrets.ORIENTDB_DBPASSWORD }};EXPORT DATABASE /home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }};exit"
-            cd /home/${{ secrets.ZORA_USER }}
-            sudo chown ${{ secrets.ZORA_USER }}:${{ secrets.ZORA_USER }} ${{ secrets.DUMP_FILENAME }}
-            ls -la 
-            exit
+# FOR NOW WE TAKE THE DUMP FROM THE REPO AND NOT THE DB
+#      - name: Generate dump on legacy server
+#        uses: appleboy/ssh-action@v0.1.7
+#        with:
+#          host: ${{ secrets.HOST }}
+#          username: ${{ secrets.ZORA_USER }}
+#          key: ${{ secrets.SSH_PRIVATE_KEY }}
+#          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
+#          port: ${{ secrets.PORT }}
+#          script: |
+#            cd /opt
+#            sudo /opt/orientdb-community-2.2.30/bin/console.sh "connect plocal:orientdb-community-2.2.30/databases/${{ secrets.ORIENTDB_DBNAME }} ${{ secrets.ORIENTDB_DBLOGIN }} ${{ secrets.ORIENTDB_DBPASSWORD }};EXPORT DATABASE /home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }};exit"
+#            cd /home/${{ secrets.ZORA_USER }}
+#            sudo chown ${{ secrets.ZORA_USER }}:${{ secrets.ZORA_USER }} ${{ secrets.DUMP_FILENAME }}
+#            ls -la
+#            exit
+#
+#      - name: Copy dump to runner
+#        uses: nicklasfrahm/scp-action@main
+#        with:
+#          direction: download
+#          host: ${{ secrets.HOST }}
+#          username: ${{ secrets.ZORA_USER }}
+#          key: ${{ secrets.SSH_PRIVATE_KEY }}
+#          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
+#          fingerprint: ${{ secrets.FINGERPRINT }}
+#          port: ${{ secrets.PORT }}
+#          source: "/home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }}"
+#          target: "${{ secrets.DUMP_FILENAME }}"
 
-      - name: Copy dump to runner
-        uses: nicklasfrahm/scp-action@main
-        with:
-          direction: download
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.ZORA_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
-          fingerprint: ${{ secrets.FINGERPRINT }}
-          port: ${{ secrets.PORT }}
-          source: "/home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }}"
-          target: "${{ secrets.DUMP_FILENAME }}"
-
-      - name: Check file
-        run: |
-          ls -la
-
-#      - name: Copy file using SCP
+#      - name: Get file from repo
+#        uses: actions/checkout@v3
+#
+#      - name: Check file
 #        run: |
-#          scp -o StrictHostKeyChecking=no -i ${{ secrets.SSH_PRIVATE_KEY }} ${{ secrets.SSH_ZORA_LOGIN }}:/home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }}  .
 #          ls -la
 
-#      - name: Login with api-token
-#        run: scalingo login --api-token=${{ secrets.SCALINGO_API_TOKEN }}
-#
-#      - name: Open docker container
-#        run: scalingo login --api-token=${{ secrets.SCALINGO_API_TOKEN }}
-#      scalingo --app taxi-db run --file ./taxi.gz bash
-#      cp /tmp/uploads/taxi.gz taxi.gz
-#      gzip -d taxi.gz
-#      jq '.records' taxi > records
-#      jq 'map(select(has("@class")))' records > class
-#      jq 'map(select(."@class" | contains("Driver")))' class > drivers
-#
-#      - name: Create drivers table
+
+
+      - name: Login with api-token
+        run: scalingo login --api-token=${{ secrets.SCALINGO_API_TOKEN }}
+
+
+#      - name: Create ${{ env.TABLE }} table
 #        run: |
-#          echo "CREATE TABLE IF NOT EXISTS drivers (user_id serial PRIMARY KEY, email VARCHAR ( 255 ) UNIQUE NOT NULL, username VARCHAR ( 50 ) UNIQUE NOT NULL); INSERT INTO drivers (email, username) VALUES ('test@test.com', 'Yojimbo'); \q" | scalingo --app ${{ inputs.application-name }} pgsql-console
+#          echo "DROP TABLE IF EXISTS public.$TABLE; CREATE TABLE public.$TABLE (id serial PRIMARY KEY, email VARCHAR ( 255 ) UNIQUE NOT NULL, username VARCHAR ( 50 )); \q" | ./scalingo --app ${{ inputs.application-name }} pgsql-console
 
-      #- name: Feed drivers table with json
-      #  run: |
-      #    echo "\set content `$DATA`; create temp table t ( j jsonb );  insert into t values (:'content');  select * from t; \q" | scalingo --app ${{ inputs.application-name }} pgsql-console
+      - name: Open docker container, extract ${{ env.CLASS }} class and fill rows
+        run: scalingo --app taxi-db run bash -c "echo 'Attempng to migrate' && npm migrate up"
 
-#      - name: Start container with json file in
-#        run: scalingo --app ${{ inputs.application-name }} run --file ./drivers.json
-#
-#      - name: Try to insert the json in the drivers table
+
+
+#      - name: Open docker container, extract ${{ env.CLASS }} class and fill rows
 #        run: >-
-#          scalingo --app ${{ inputs.application-name }} run bash -c "echo 'Installing pgsql-client' &&
+#          ./scalingo --app taxi-db run --file ./${{ secrets.DUMP_FILENAME }} bash -c "echo 'Installing pgsql-client' &&
 #          dbclient-fetcher pgsql &&
 #          echo 'Trying to interact with db' &&
-#          ls -la /tmp &&
-#          psql $DATABASE_VAR -c '\x' -c 'SELECT * FROM drivers;'
-#          exit 0" --file ./drivers
+#          cp /tmp/uploads/${{ secrets.DUMP_FILENAME }} ${{ secrets.DUMP_FILENAME }} &&
+#          gzip -d ${{ secrets.DUMP_FILENAME }} &&
+#          jq '.records' ${{ env.unarchived-dump-name }} > records &&
+#          jq 'map(select(has("@class")))' records > class &&
+#          jq 'map(select(."@class" | contains("$CLASS")))' class > content &&
+#          psql $DATABASE_VAR -c '\x' -c '\set content `cat /app/content` insert into public.$TABLE ($FIELDS) select $MAP_IN_JSON from jsonb_array_elements(:'content'::jsonb) as arr(elem); \q'"
+
   
 
 
