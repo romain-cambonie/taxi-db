@@ -1,4 +1,8 @@
-# Commands
+# Conversion from orientDB to postgresql
+
+# Current
+
+# Manual Process (Deprecated)
 
 ## Extract valid data records
 ```shell
@@ -43,10 +47,10 @@ psql --host=$AWS_ENDPOINT --port=5432 --username=$PG_USERNAME --password --dbnam
 
 ### Copy csv content to remote  db (eg drivers)
 ```shell
-psql --host=*** --port=5432 --username=taxiroot --password --dbname=taxi
+psql --host=*** --port=5432 --username=username --password --dbname=taxi
 DROP TABLE IF EXISTS $TABLE;
 CREATE TABLE (...);
-\copy drivers_orient ("class","fieldtypes","rid","type","version","active","created_at","deviceid","email","firstname","identity","in_has_owner","lastname","latitude","longitude","medical_weight","out_has_address","out_owned_by","out_user_role","password","phone","remember_token","standard","standard_weight","updated_at","work") from './drivers.csv' WITH DELIMITER ',' CSV HEADER;
+
 ```
 
 # Tables traitées

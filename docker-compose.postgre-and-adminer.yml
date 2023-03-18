@@ -1,0 +1,23 @@
+version: "3"
+services:
+  postgres:
+    image: postgres:14.6
+    shm_size: 512m
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: taxi
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d taxi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./docker-data/postgresql:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer
+    ports:
+      - "8090:8080"

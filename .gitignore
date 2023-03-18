@@ -1,5 +1,4 @@
 /.idea
 ./taxi_2023_01_25.gz
-./records
-./class
-/node_modules
+/docker-data
+/extraction_result
