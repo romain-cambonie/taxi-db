@@ -4,7 +4,7 @@ echo "Starting data extraction on archive" $1
 filename=$1
 filename_without_extension=${filename//.gz/}
 
-entities=(addresses fares drives plannings users drivers has_fare)
+entities=(addresses fares drives plannings users drivers has_fare drive_from drive_to)
 
 createTableFromCsvHeaders() {
   headers=$1
@@ -86,6 +86,7 @@ for entityName in "${entities[@]}"; do
 done
 
 # Migrations
-psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i fares_drive_rid_from_has_fare.sql"
+psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i ../migrations/fares_drive_rid_from_has_fare.sql"
+psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i ../migrations/drive_from_to_address_values.sql"
 
 # Dropping edge tables
