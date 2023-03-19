@@ -1,6 +1,7 @@
 CREATE VIEW view_result AS
 SELECT fares.rid,
-    clients.identity,
+    clients.identity AS clientIdentity,
+    drivers.identity AS driverIdentity,
     clients.phone,
     fares.created_at,
     fares.creator,
@@ -28,5 +29,6 @@ SELECT fares.rid,
    FROM (fares fares
      LEFT JOIN drives drives ON ((fares.drive_rid = drives.rid))
      LEFT JOIN users clients ON ((drives.client_rid = clients.rid))
+     LEFT JOIN drivers drivers ON ((fares.driver_rid = drivers.rid))
      )
   WHERE (fares.date = '2019-03-05'::text);
