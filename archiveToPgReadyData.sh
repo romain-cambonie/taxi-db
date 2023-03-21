@@ -2,18 +2,18 @@
 echo "Starting data extraction on archive" $1
 
 filename=$1
-filename_without_extension=${filename//.gz/}
+filenameWithoutExtension=${filename//.gz/}
+connexionString=$2
 
 entities=(addresses fares drives plannings users drivers has_fare drive_from drive_to has_drive has_entry has_owner)
 
-createTableFromCsvHeaders() {
+createTableAndDataMigrationFromCsv() {
   headers=$1
-  headers_without_quotes=${headers//\"}
+  headersWithoutQuotes=${headers//\"}
   table=$2
   # Remove quotes and split into array
-  IFS=',' read -ra cols <<< "${headers_without_quotes}"
+  IFS=',' read -ra cols <<< "${headersWithoutQuotes}"
 
-  # Generate CREATE TABLE SQL command
   sql="DROP TABLE IF EXISTS $table; CREATE TABLE $table ("
 
   for col in "${cols[@]}"; do
@@ -23,48 +23,35 @@ createTableFromCsvHeaders() {
   # Remove trailing comma and space
   sql=${sql%,*}
 
-  # Close SQL command and print to console
   sql+=");"
 
   echo "$sql" > $table.sql
-  echo "\copy $table ($header) from $table.csv WITH DELIMITER ',' CSV HEADER;" >> $table.sql
+  echo "\copy $table ($headers) from $table.csv WITH DELIMITER ',' CSV HEADER;" >> $table.sql
 }
 
-recordsToCsv() {
+recordsToPgTable() {
   jq -r '(map(keys) | add | unique) as $cols | map(. as $row | $cols | map($row[.] | tostring )) as $rows | $cols, $rows[] | @csv' $1 > $1.csv
   sed -i '1s/@//g; 1s/.*/\L&/' $1.csv
 
-  # Remove the duplicate column 'type'
+  # Remove the duplicate column 'type' from the drives table
   if [[ $1 == "drives" ]]; then
      mlr --csv  cut -x -f 33 drives.csv > test.csv
      mv test.csv drives.csv
   fi
   #Extract csv headers
-  header=$(head -n 1 $1.csv)
+  headers=$(head -n 1 $1.csv)
 
-  #Create sql create table from headers
-  createTableFromCsvHeaders $header $1
-
-  # Drives has some records with corrupted data (several 'type' field), we remove the additional occurences
-
+  #Create sql create table and from headers
+  createTableAndDataMigrationFromCsv $headers $1
 
   # create the table with psql
-  psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i $1.sql"
-
-  # insert the table values
-
+  psql $connexionString -c "\i $1.sql"
 }
 
-
-# Local only
-rm -rf extraction_result; mkdir extraction_result
-
 gzip --decompress --keep $filename
-mv $filename_without_extension extraction_result
-cd extraction_result
 
 # Only records with the @class field interest us
-jq '.records' $filename_without_extension > records
+jq '.records' $filenameWithoutExtension > records
 jq 'map(select(has("@class")))' records > class
 
 # Extraction of each data class into its own file
@@ -90,17 +77,14 @@ jq 'map(select(has("@class")))' records > class
  jq 'map(select(."@class" | contains("has_entry")))' class > has_entry #planning and fare
  jq 'map(select(."@class" | contains("has_owner")))' class > has_owner #planning and driver
 
-###
-#psql "postgresql://postgres:password@localhost:5432/taxi" -c "DROP VIEW IF EXISTS view_result;"
 
 ### Transform jq records into csv
 for entityName in "${entities[@]}"; do
-    recordsToCsv $entityName
+    recordsToPgTable $entityName
 done
 
 # Migrations
-psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i ../migrations/1_fares_drive_rid_from_has_fare.sql"
-psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i ../migrations/2_drive_from_to_address_values.sql"
-psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i ../migrations/3_drive_client_rid_from_has_drive.sql"
-psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i ../migrations/4_fare_driver_from_planning.sql"
-#psql "postgresql://postgres:password@localhost:5432/taxi" -c "\i ../migrations/view_result.sql"
+psql $connexionString -c "\i ./migrations/1_fares_drive_rid_from_has_fare.sql"
+psql $connexionString -c "\i ./migrations/2_drive_from_to_address_values.sql"
+psql $connexionString -c "\i ./migrations/3_drive_client_rid_from_has_drive.sql"
+psql $connexionString -c "\i ./migrations/4_fare_driver_from_planning.sql"

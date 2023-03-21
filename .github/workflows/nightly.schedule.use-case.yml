@@ -1,0 +1,68 @@
+name: Dispatch - Migrate DB from legacy server to RDS instance
+
+on:
+  # Every night around 1AM
+  #schedule:
+  #  - cron: "58 0 * * *"
+
+  workflow_dispatch:
+
+jobs:
+  open-rds-to-external-connexion:
+    uses: romain-cambonie/taxi-network-infrastructure/.github/workflows/terraform.yml@main
+    with:
+      tfvar: "openRdsToPublicInternet=true"
+    secrets:
+      TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+
+  migrate-db:
+    needs:
+      - open-rds-to-external-connexion
+    uses: ./.github/workflows/_postgres-from-orient.reusable.yml
+    secrets:
+      DUMP_FILENAME: ${{ secrets.DUMP_FILENAME }}
+      ORIENTDB_DBLOGIN: ${{ secrets.ORIENTDB_DBLOGIN }}
+      ORIENTDB_DBNAME: ${{ secrets.ORIENTDB_DBNAME }}
+      ORIENTDB_DBPASSWORD: ${{ secrets.ORIENTDB_DBPASSWORD }}
+      SSH_ZORA_LOGIN: ${{ secrets.SSH_ZORA_LOGIN }}
+      SSH_ZORA_PASSWORD: ${{ secrets.SSH_ZORA_PASSWORD }}
+      ZORA_USER: ${{ secrets.ZORA_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      HOST: ${{ secrets.HOST }}
+      PORT: ${{ secrets.PORT }}
+      FINGERPRINT: ${{ secrets.FINGERPRINT }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      PG_RDS_CONNEXION_STRING: ${{ secrets.PG_RDS_CONNEXION_STRING }}
+
+  close-rds-to-external-connexion:
+    needs:
+      - migrate-db
+    uses: romain-cambonie/taxi-network-infrastructure/.github/workflows/terraform.yml@main
+    with:
+      tfvar: "openRdsToPublicInternet=false"
+    secrets:
+      TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+
+  notify-discord:
+    needs:
+      - close-rds-to-external-connexion
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare payload
+        run: >-
+          (jq -r '.' <<< '
+          {
+            "username": "Taxibot",
+            "content": "Creation, transformation et chargement de la base Orient vers RDS ok"
+          }'
+          ) > payload
+
+      - name: Send notification
+        run: >-
+          curl
+          --header "Content-Type:application/json"
+          --request POST
+          --data @payload
+          ${{ secrets.DISCORD_NOTIFY_HOOK_URL }}

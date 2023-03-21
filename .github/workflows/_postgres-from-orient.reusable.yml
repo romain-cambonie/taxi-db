@@ -1,0 +1,101 @@
+name: zReusable - Create a postgre database from an oriendb dump
+
+on:
+  workflow_call:
+    secrets:
+      DUMP_FILENAME:
+        required: true
+      ORIENTDB_DBLOGIN:
+        required: true
+      ORIENTDB_DBNAME:
+        required: true
+      ORIENTDB_DBPASSWORD:
+        required: true
+      SSH_ZORA_LOGIN:
+        required: true
+      SSH_ZORA_PASSWORD:
+        required: true
+      ZORA_USER:
+        required: true
+      SSH_PRIVATE_KEY:
+        required: true
+      HOST:
+        required: true
+      PORT:
+        required: true
+      FINGERPRINT:
+        required: true
+      POSTGRES_USER:
+        required: true
+      POSTGRES_PASSWORD:
+        required: true
+      POSTGRES_DB:
+        required: true
+      PG_RDS_CONNEXION_STRING:
+        required: true
+
+jobs:
+  migrate:
+    name: Migrate OrientDB dump to PostgreSQL
+    runs-on: ubuntu-latest
+    env:
+      PG_CONNEXION_STRING: postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/${{ secrets.POSTGRES_DB }}
+    services:
+      postgres:
+        image: postgres:14.6
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Get file from repo
+        uses: actions/checkout@v3
+
+      - name: Generate dump on legacy server
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.ZORA_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
+          port: ${{ secrets.PORT }}
+          script: |
+            cd /opt
+            sudo /opt/orientdb-community-2.2.30/bin/console.sh "connect plocal:orientdb-community-2.2.30/databases/${{ secrets.ORIENTDB_DBNAME }} ${{ secrets.ORIENTDB_DBLOGIN }} ${{ secrets.ORIENTDB_DBPASSWORD }};EXPORT DATABASE /home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }};exit"
+            cd /home/${{ secrets.ZORA_USER }}
+            sudo chown ${{ secrets.ZORA_USER }}:${{ secrets.ZORA_USER }} ${{ secrets.DUMP_FILENAME }}
+            exit
+
+      - name: Copy dump to runner
+        uses: nicklasfrahm/scp-action@main
+        with:
+          direction: download
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.ZORA_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
+          fingerprint: ${{ secrets.FINGERPRINT }}
+          port: ${{ secrets.PORT }}
+          source: "/home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }}"
+          target: "${{ secrets.DUMP_FILENAME }}"
+
+      - name: Script
+        run: ./archiveToPgReadyData.sh ${{ secrets.DUMP_FILENAME }} $PG_CONNEXION_STRING
+
+      - name: Migrate to remote db
+        run: |
+          pg_dump $PG_CONNEXION_STRING --clean --if-exists --no-owner | psql ${{ secrets.PG_RDS_CONNEXION_STRING }}
+            
+
+
+
+
+
