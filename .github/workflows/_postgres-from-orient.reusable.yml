@@ -87,6 +87,11 @@ jobs:
           source: "/home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }}"
           target: "${{ secrets.DUMP_FILENAME }}"
 
+      - name: Install Miller executable for script
+        run: |
+          sudo apt-get install miller -y
+          mlr --version
+
       - name: Script
         run: ./archiveToPgReadyData.sh ${{ secrets.DUMP_FILENAME }} $PG_CONNEXION_STRING
 
