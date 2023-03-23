@@ -33,11 +33,13 @@ recordsToPgTable() {
   jq -r '(map(keys) | add | unique) as $cols | map(. as $row | $cols | map($row[.] | tostring )) as $rows | $cols, $rows[] | @csv' $1 > $1.csv
   sed -i '1s/@//g; 1s/.*/\L&/' $1.csv
 
-  # Remove the duplicate column 'type' from the drives table
+  # Rename the duplicate column 'type' to 'type2' from the drives table
   if [[ $1 == "drives" ]]; then
-     mlr --csv  cut -x -f 33 drives.csv > test.csv
-     mv test.csv drives.csv
+    sed -i '1d' drives.csv
+    mlr --csv --implicit-csv-header label class,fieldtypes,rid,type,version,comment,created_at,distanceoverride,in_has_drive,name,out_drive_from,out_drive_to,out_has_fare,twoway,type2,updated_at drives.csv > temp.csv
+    mv temp.csv drives.csv
   fi
+
   #Extract csv headers
   headers=$(head -n 1 $1.csv)
 
@@ -88,3 +90,4 @@ psql $connexionString -c "\i ./migrations/1_fares_drive_rid_from_has_fare.sql"
 psql $connexionString -c "\i ./migrations/2_drive_from_to_address_values.sql"
 psql $connexionString -c "\i ./migrations/3_drive_client_rid_from_has_drive.sql"
 psql $connexionString -c "\i ./migrations/4_fare_driver_from_planning.sql"
+psql $connexionString -c "\i ./migrations/5_drives_nature.sql"
