@@ -59,20 +59,20 @@ jobs:
       - name: Get file from repo
         uses: actions/checkout@v3
 
-      - name: Generate dump on legacy server
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.ZORA_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
-          port: ${{ secrets.PORT }}
-          script: |
-            cd /opt
-            sudo /opt/orientdb-community-2.2.30/bin/console.sh "connect plocal:orientdb-community-2.2.30/databases/${{ secrets.ORIENTDB_DBNAME }} ${{ secrets.ORIENTDB_DBLOGIN }} ${{ secrets.ORIENTDB_DBPASSWORD }};EXPORT DATABASE /home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }};exit"
-            cd /home/${{ secrets.ZORA_USER }}
-            sudo chown ${{ secrets.ZORA_USER }}:${{ secrets.ZORA_USER }} ${{ secrets.DUMP_FILENAME }}
-            exit
+      #- name: Generate dump on legacy server
+      #  uses: appleboy/ssh-action@v0.1.7
+      #  with:
+      #    host: ${{ secrets.HOST }}
+      #    username: ${{ secrets.ZORA_USER }}
+      #    key: ${{ secrets.SSH_PRIVATE_KEY }}
+      #    passphrase: ${{ secrets.SSH_ZORA_PASSWORD }}
+      #    port: ${{ secrets.PORT }}
+      #    script: |
+      #      cd /opt
+      #      sudo /opt/orientdb-community-2.2.30/bin/console.sh "connect plocal:orientdb-community-2.2.30/databases/${{ secrets.ORIENTDB_DBNAME }} ${{ secrets.ORIENTDB_DBLOGIN }} ${{ secrets.ORIENTDB_DBPASSWORD }};EXPORT DATABASE /home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }};exit"
+      #      cd /home/${{ secrets.ZORA_USER }}
+      #      sudo chown ${{ secrets.ZORA_USER }}:${{ secrets.ZORA_USER }} ${{ secrets.DUMP_FILENAME }}
+      #      exit
 
       - name: Copy dump to runner
         uses: nicklasfrahm/scp-action@main
