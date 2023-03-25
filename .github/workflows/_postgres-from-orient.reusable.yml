@@ -70,6 +70,7 @@ jobs:
           script: |
             cd /opt
             sudo /opt/orientdb-community-2.2.30/bin/console.sh "connect plocal:orientdb-community-2.2.30/databases/${{ secrets.ORIENTDB_DBNAME }} ${{ secrets.ORIENTDB_DBLOGIN }} ${{ secrets.ORIENTDB_DBPASSWORD }};EXPORT DATABASE /home/${{ secrets.ZORA_USER }}/${{ secrets.DUMP_FILENAME }};exit"
+            sudo chown -R orientdb:orientdb orientdb-community-2.2.30/
             cd /home/${{ secrets.ZORA_USER }}
             sudo chown ${{ secrets.ZORA_USER }}:${{ secrets.ZORA_USER }} ${{ secrets.DUMP_FILENAME }}
             exit
